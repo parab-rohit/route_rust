@@ -1,0 +1,18 @@
+[package]
+name = "route_rust"
+version = "0.1.0"
+edition = "2021"
+description = "RouteRust is a fast, reliable load balancer built in Rust."
+license = "MIT"
+readme = "README.md"
+
+# Define binary target at non-standard location (root-level main.rs)
+[[bin]]
+name = "route_rust"
+path = "main.rs"
+
+[dependencies]
+tokio = { version = "1.39", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
+reqwest = "0.12.23"
