@@ -2,6 +2,7 @@ use tokio::io::AsyncWriteExt;
 use tokio::net::{TcpListener, TcpStream};
 use tracing::{error, info};
 use reqwest;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 struct Server{
     host: String,
@@ -11,10 +12,13 @@ struct Server{
 }
 
 struct HealthyServers {
-   healthy_server_indices: Vec<usize>,
+    healthy_server_indices: Vec<usize>,
 }
 
 type AvailableServers = Vec<Server>;
+
+static ROUTING_STRATEGY: &str = "round-robin";
+static ROUND_ROBIN_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 impl Server {
     fn new(host: String, port: u16, status: String, health_check_url: String) -> Self {
@@ -70,13 +74,30 @@ impl HealthyServers {
             }
         }
     }
+
+    fn get_available_server(&self, available_servers: AvailableServers) -> Server{
+        if ROUTING_STRATEGY == "round-robin" {
+            get_server_round_robin(self, available_servers)
+        } else {
+            panic!("Unknown routing strategy: {}", ROUTING_STRATEGY)
+        }
+    }
 }
 
-fn get_available_server(){
-    //this will return the first available server
-
+fn get_server_round_robin(healthy_servers: &HealthyServers, available_servers: AvailableServers) -> Server {
+    let len = healthy_servers.healthy_server_indices.len();
+    if len > 0 {
+        let index = ROUND_ROBIN_COUNT.fetch_add(1, Ordering::SeqCst) % len;
+        Server {
+            host: available_servers[healthy_servers.healthy_server_indices[index]].host.clone(),
+            port: available_servers[healthy_servers.healthy_server_indices[index]].port,
+            status: available_servers[healthy_servers.healthy_server_indices[index]].status.clone(),
+            health_check_url: available_servers[healthy_servers.healthy_server_indices[index]].health_check_url.clone(),
+        }
+    } else {
+        panic!("No healthy servers available")
+    }
 }
-
 
 async fn handle_incoming(mut stream: TcpStream) {
     info!("New connection from: {}", stream.peer_addr().unwrap());
