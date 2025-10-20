@@ -11,7 +11,7 @@ struct Server{
 }
 
 struct HealthyServers {
-   healthy_servers: Vec<Server>,
+   healthy_server_indices: Vec<usize>,
 }
 
 type AvailableServers = Vec<Server>;
@@ -25,7 +25,7 @@ impl Server {
             health_check_url,
         }
     }
-fn is_healthy(&mut self) -> bool {
+async fn is_healthy(&mut self) -> bool {
         match reqwest::get(&self.health_check_url).await {
             Ok(response) => {
                 if response.status().is_success() {
@@ -47,24 +47,26 @@ fn is_healthy(&mut self) -> bool {
 impl HealthyServers {
     fn new() -> Self {
         Self {
-            healthy_servers: Vec::new(),
+            healthy_server_indices: Vec::new(),
         }
     }
-    fn add_server(&mut self, server: Server){
-        self.healthy_servers.push(server);
+    fn add_server(&mut self, index: usize) {
+       if !self.healthy_server_indices.contains(&index) {
+           self.healthy_server_indices.push(index);
+       }
     }
-    fn remove_server(&mut self, server: Server) {
-        self.healthy_servers.retain(|s| !(s.host == server.host && s.port == server.port));
+    fn remove_server(&mut self, index: usize) {
+        self.healthy_server_indices.retain(|&idx| idx != index)
     }
-    fn periodic_health_check(mut self, available_servers: AvailableServers) {
+    async fn periodic_health_check(mut self, available_servers: &mut AvailableServers) {
         if available_servers.len() > 0 {
             error!("No servers available.")
         }
-        for mut server in available_servers {
-            if server.is_healthy(){
-                self.add_server(server);
+        for (index, server) in available_servers.iter_mut().enumerate() {
+            if server.is_healthy().await{
+                self.add_server(index);
             } else {
-                self.remove_server(server);
+                self.remove_server(index);
             }
         }
     }
@@ -106,8 +108,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let listener = TcpListener::bind("127.0.0.1:8080").await?;
     info!("Starting server on: {}", listener.local_addr()?);
 
-    tokio::spawn(async move {
+    let mut server_list = AvailableServers::new();
 
+    let mut healthy_servers = HealthyServers::new();
+
+    tokio::spawn(async move {
+        healthy_servers.periodic_health_check(&mut server_list);
     });
 
     loop {
